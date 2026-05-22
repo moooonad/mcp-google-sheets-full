@@ -11,12 +11,21 @@ It exposes:
 
 ## Setup (one-time)
 
-### 1. Build
+### 1. Install from the repo
+
+Installs globally and puts an `mcp-google-sheets` executable in your PATH. The TypeScript build runs automatically via the `prepare` npm hook.
 
 ```bash
-npm install
-npm run build
+# SSH (you must have access to the GitLab repo)
+npm install -g git+ssh://git@gitlab.com/webapp-srl/tools/mcp-google-sheets.git
+
+# or HTTPS
+npm install -g git+https://gitlab.com/webapp-srl/tools/mcp-google-sheets.git
 ```
+
+To update later, run the same command again. To uninstall: `npm uninstall -g mcp-google-sheets`.
+
+(For local development, clone the repo and run `npm install && npm run build`.)
 
 ### 2. Create an OAuth Client ID (Desktop app)
 
@@ -43,10 +52,12 @@ If a refresh fails (e.g. the token was revoked), delete `gdrive-token.json` and 
 
 ## Register the server
 
+After global install the `mcp-google-sheets` binary is on PATH.
+
 ### Claude Code (project or user scope)
 
 ```bash
-claude mcp add google-sheets -- node "C:/dev/tools/mcp-google-sheets/dist/index.js"
+claude mcp add google-sheets -- mcp-google-sheets
 ```
 
 ### Claude Desktop (`claude_desktop_config.json`)
@@ -55,12 +66,13 @@ claude mcp add google-sheets -- node "C:/dev/tools/mcp-google-sheets/dist/index.
 {
   "mcpServers": {
     "google-sheets": {
-      "command": "node",
-      "args": ["C:/dev/tools/mcp-google-sheets/dist/index.js"]
+      "command": "mcp-google-sheets"
     }
   }
 }
 ```
+
+If the `mcp-google-sheets` command is not found by Claude Desktop (it sometimes ignores PATH on macOS/Windows), use the absolute path npm reported with `npm bin -g` plus `/mcp-google-sheets` (or `.cmd` on Windows).
 
 Optional env:
 
