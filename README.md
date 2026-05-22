@@ -115,9 +115,14 @@ The harness wraps the code in an async IIFE, so top-level `await` works directly
 | `batch_update_values` | Write multiple ranges in one call. |
 | `append_values` | Append rows to the end of a table. |
 | `clear_values` | Clear one or more ranges. |
-| `batch_update` | Structural changes (add/delete sheets, formatting, merges, freeze, conditional formatting, etc. — pass raw Sheets API `Request[]`). |
+| `batch_update` | Structural changes (raw Sheets API `Request[]`) — escape hatch for any Request type not covered by a dedicated tool. |
 | `create_spreadsheet` | Create a new spreadsheet owned by the user. |
-| `run_sheets_script` | Run arbitrary Node code with pre-authenticated `sheets`/`drive`/`spreadsheetId`. |
+| `add_sheet` / `delete_sheet` / `duplicate_sheet` / `rename_sheet` | Manage tabs (accept `sheet_id` gid or `sheet_name`). |
+| `insert_rows` / `insert_columns` / `delete_rows` / `delete_columns` | Manage rows/columns by 0-based index ranges. |
+| `merge_cells` / `unmerge_cells` | Merge ranges (MERGE_ALL / MERGE_COLUMNS / MERGE_ROWS). |
+| `format_cells` | Apply a partial `CellFormat` to a range (background, textFormat, alignment, numberFormat, ...). |
+| `set_borders` | Set borders on a range (top/bottom/left/right/innerHorizontal/innerVertical). |
+| `run_sheets_script` | Run arbitrary Node code with pre-authenticated `sheets`/`drive`/`auth`/`spreadsheetId`. |
 
 ## Notes
 

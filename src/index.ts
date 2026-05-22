@@ -25,8 +25,56 @@ function escapeDriveLiteral(s: string): string {
   return s.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
 }
 
+// Build a field mask for repeatCell.fields based on the keys provided in a
+// partial object. E.g. buildFieldMask("userEnteredFormat", { textFormat: { bold: true }, backgroundColor: {} })
+// -> "userEnteredFormat.textFormat,userEnteredFormat.backgroundColor"
+function buildFieldMask(prefix: string, obj: Record<string, unknown>): string {
+  const parts = Object.keys(obj).map((k) => `${prefix}.${k}`);
+  return parts.join(",");
+}
+
 const SPREADSHEET_ID_DESC =
   "Google Sheets spreadsheet ID (the string between /d/ and /edit in the URL). Always required and explicit — there is no default.";
+
+// Resolve a sheet (tab) identifier: prefer numeric sheet_id, otherwise look up by name.
+async function resolveSheetId(
+  spreadsheetId: string,
+  sheetId: number | undefined,
+  sheetName: string | undefined,
+): Promise<number> {
+  if (typeof sheetId === "number") return sheetId;
+  if (!sheetName) {
+    throw new Error("Provide either sheet_id (numeric gid) or sheet_name.");
+  }
+  const sheets = await getSheetsClient();
+  const meta = await sheets.spreadsheets.get({
+    spreadsheetId,
+    fields: "sheets(properties(sheetId,title))",
+  });
+  const found = meta.data.sheets?.find((s) => s.properties?.title === sheetName);
+  if (!found?.properties?.sheetId && found?.properties?.sheetId !== 0) {
+    throw new Error(`Sheet with name '${sheetName}' not found in spreadsheet ${spreadsheetId}.`);
+  }
+  return found.properties.sheetId as number;
+}
+
+async function runRequests(spreadsheetId: string, requests: any[]) {
+  const sheets = await getSheetsClient();
+  const res = await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: { requests },
+  });
+  return res.data;
+}
+
+const SHEET_REF_PROPS = {
+  sheet_id: { type: "number", description: "Numeric sheet (tab) ID, i.e. the gid. Preferred." },
+  sheet_name: { type: "string", description: "Tab name (used only if sheet_id is omitted)." },
+};
+const sheetRefZod = z.object({
+  sheet_id: z.number().int().optional(),
+  sheet_name: z.string().optional(),
+});
 
 const tools = [
   {
@@ -429,6 +477,443 @@ const tools = [
         spreadsheetUrl: res.data.spreadsheetUrl,
         sheets: res.data.sheets?.map((s) => s.properties),
       });
+    },
+  },
+  {
+    name: "add_sheet",
+    description: "Add a new tab (sheet) to the spreadsheet. Returns the new sheetId.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        spreadsheetId: { type: "string", description: SPREADSHEET_ID_DESC },
+        title: { type: "string", description: "Tab name." },
+        index: { type: "number", description: "Optional 0-based position." },
+        row_count: { type: "number", description: "Optional initial row count." },
+        column_count: { type: "number", description: "Optional initial column count." },
+      },
+      required: ["spreadsheetId", "title"],
+    },
+    zod: z.object({
+      spreadsheetId: z.string(),
+      title: z.string(),
+      index: z.number().int().min(0).optional(),
+      row_count: z.number().int().min(1).optional(),
+      column_count: z.number().int().min(1).optional(),
+    }),
+    handler: async (a: any) => {
+      const props: any = { title: a.title };
+      if (typeof a.index === "number") props.index = a.index;
+      if (a.row_count || a.column_count) {
+        props.gridProperties = {
+          rowCount: a.row_count,
+          columnCount: a.column_count,
+        };
+      }
+      const res = await runRequests(a.spreadsheetId, [{ addSheet: { properties: props } }]);
+      const added = (res.replies?.[0] as any)?.addSheet?.properties;
+      return ok(added ?? res);
+    },
+  },
+  {
+    name: "delete_sheet",
+    description: "Delete a tab. Pass either sheet_id (gid) or sheet_name.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        spreadsheetId: { type: "string", description: SPREADSHEET_ID_DESC },
+        ...SHEET_REF_PROPS,
+      },
+      required: ["spreadsheetId"],
+    },
+    zod: sheetRefZod.extend({ spreadsheetId: z.string() }),
+    handler: async (a: any) => {
+      const sheetId = await resolveSheetId(a.spreadsheetId, a.sheet_id, a.sheet_name);
+      return ok(await runRequests(a.spreadsheetId, [{ deleteSheet: { sheetId } }]));
+    },
+  },
+  {
+    name: "duplicate_sheet",
+    description: "Duplicate a tab within the same spreadsheet. Returns the new sheetId.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        spreadsheetId: { type: "string", description: SPREADSHEET_ID_DESC },
+        ...SHEET_REF_PROPS,
+        new_title: { type: "string", description: "Title for the duplicated tab." },
+        insert_index: { type: "number", description: "Optional 0-based position of the copy." },
+      },
+      required: ["spreadsheetId", "new_title"],
+    },
+    zod: sheetRefZod.extend({
+      spreadsheetId: z.string(),
+      new_title: z.string(),
+      insert_index: z.number().int().min(0).optional(),
+    }),
+    handler: async (a: any) => {
+      const sourceSheetId = await resolveSheetId(a.spreadsheetId, a.sheet_id, a.sheet_name);
+      const req: any = {
+        duplicateSheet: {
+          sourceSheetId,
+          newSheetName: a.new_title,
+        },
+      };
+      if (typeof a.insert_index === "number") req.duplicateSheet.insertSheetIndex = a.insert_index;
+      const res = await runRequests(a.spreadsheetId, [req]);
+      const dup = (res.replies?.[0] as any)?.duplicateSheet?.properties;
+      return ok(dup ?? res);
+    },
+  },
+  {
+    name: "rename_sheet",
+    description: "Rename a tab.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        spreadsheetId: { type: "string", description: SPREADSHEET_ID_DESC },
+        ...SHEET_REF_PROPS,
+        new_title: { type: "string" },
+      },
+      required: ["spreadsheetId", "new_title"],
+    },
+    zod: sheetRefZod.extend({ spreadsheetId: z.string(), new_title: z.string() }),
+    handler: async (a: any) => {
+      const sheetId = await resolveSheetId(a.spreadsheetId, a.sheet_id, a.sheet_name);
+      return ok(
+        await runRequests(a.spreadsheetId, [
+          {
+            updateSheetProperties: {
+              properties: { sheetId, title: a.new_title },
+              fields: "title",
+            },
+          },
+        ]),
+      );
+    },
+  },
+  {
+    name: "insert_rows",
+    description: "Insert N empty rows starting at start_index (0-based, half-open: rows [start_index, start_index+count) are inserted).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        spreadsheetId: { type: "string", description: SPREADSHEET_ID_DESC },
+        ...SHEET_REF_PROPS,
+        start_index: { type: "number", description: "0-based row index where insertion begins." },
+        count: { type: "number", description: "Number of rows to insert." },
+        inherit_from_before: { type: "boolean", description: "If true, formatting inherited from row above. Default false." },
+      },
+      required: ["spreadsheetId", "start_index", "count"],
+    },
+    zod: sheetRefZod.extend({
+      spreadsheetId: z.string(),
+      start_index: z.number().int().min(0),
+      count: z.number().int().min(1),
+      inherit_from_before: z.boolean().optional(),
+    }),
+    handler: async (a: any) => {
+      const sheetId = await resolveSheetId(a.spreadsheetId, a.sheet_id, a.sheet_name);
+      return ok(
+        await runRequests(a.spreadsheetId, [
+          {
+            insertDimension: {
+              range: {
+                sheetId,
+                dimension: "ROWS",
+                startIndex: a.start_index,
+                endIndex: a.start_index + a.count,
+              },
+              inheritFromBefore: a.inherit_from_before ?? false,
+            },
+          },
+        ]),
+      );
+    },
+  },
+  {
+    name: "insert_columns",
+    description: "Insert N empty columns starting at start_index (0-based).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        spreadsheetId: { type: "string", description: SPREADSHEET_ID_DESC },
+        ...SHEET_REF_PROPS,
+        start_index: { type: "number" },
+        count: { type: "number" },
+        inherit_from_before: { type: "boolean" },
+      },
+      required: ["spreadsheetId", "start_index", "count"],
+    },
+    zod: sheetRefZod.extend({
+      spreadsheetId: z.string(),
+      start_index: z.number().int().min(0),
+      count: z.number().int().min(1),
+      inherit_from_before: z.boolean().optional(),
+    }),
+    handler: async (a: any) => {
+      const sheetId = await resolveSheetId(a.spreadsheetId, a.sheet_id, a.sheet_name);
+      return ok(
+        await runRequests(a.spreadsheetId, [
+          {
+            insertDimension: {
+              range: {
+                sheetId,
+                dimension: "COLUMNS",
+                startIndex: a.start_index,
+                endIndex: a.start_index + a.count,
+              },
+              inheritFromBefore: a.inherit_from_before ?? false,
+            },
+          },
+        ]),
+      );
+    },
+  },
+  {
+    name: "delete_rows",
+    description: "Delete rows in range [start_index, end_index) (0-based, half-open).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        spreadsheetId: { type: "string", description: SPREADSHEET_ID_DESC },
+        ...SHEET_REF_PROPS,
+        start_index: { type: "number" },
+        end_index: { type: "number" },
+      },
+      required: ["spreadsheetId", "start_index", "end_index"],
+    },
+    zod: sheetRefZod.extend({
+      spreadsheetId: z.string(),
+      start_index: z.number().int().min(0),
+      end_index: z.number().int().min(1),
+    }),
+    handler: async (a: any) => {
+      const sheetId = await resolveSheetId(a.spreadsheetId, a.sheet_id, a.sheet_name);
+      return ok(
+        await runRequests(a.spreadsheetId, [
+          {
+            deleteDimension: {
+              range: { sheetId, dimension: "ROWS", startIndex: a.start_index, endIndex: a.end_index },
+            },
+          },
+        ]),
+      );
+    },
+  },
+  {
+    name: "delete_columns",
+    description: "Delete columns in range [start_index, end_index) (0-based, half-open).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        spreadsheetId: { type: "string", description: SPREADSHEET_ID_DESC },
+        ...SHEET_REF_PROPS,
+        start_index: { type: "number" },
+        end_index: { type: "number" },
+      },
+      required: ["spreadsheetId", "start_index", "end_index"],
+    },
+    zod: sheetRefZod.extend({
+      spreadsheetId: z.string(),
+      start_index: z.number().int().min(0),
+      end_index: z.number().int().min(1),
+    }),
+    handler: async (a: any) => {
+      const sheetId = await resolveSheetId(a.spreadsheetId, a.sheet_id, a.sheet_name);
+      return ok(
+        await runRequests(a.spreadsheetId, [
+          {
+            deleteDimension: {
+              range: { sheetId, dimension: "COLUMNS", startIndex: a.start_index, endIndex: a.end_index },
+            },
+          },
+        ]),
+      );
+    },
+  },
+  {
+    name: "merge_cells",
+    description:
+      "Merge a cell range. merge_type controls how: MERGE_ALL (default), MERGE_COLUMNS (merge each column), MERGE_ROWS (merge each row).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        spreadsheetId: { type: "string", description: SPREADSHEET_ID_DESC },
+        ...SHEET_REF_PROPS,
+        start_row: { type: "number", description: "0-based inclusive." },
+        end_row: { type: "number", description: "0-based exclusive." },
+        start_column: { type: "number" },
+        end_column: { type: "number" },
+        merge_type: { type: "string", enum: ["MERGE_ALL", "MERGE_COLUMNS", "MERGE_ROWS"] },
+      },
+      required: ["spreadsheetId", "start_row", "end_row", "start_column", "end_column"],
+    },
+    zod: sheetRefZod.extend({
+      spreadsheetId: z.string(),
+      start_row: z.number().int().min(0),
+      end_row: z.number().int().min(1),
+      start_column: z.number().int().min(0),
+      end_column: z.number().int().min(1),
+      merge_type: z.enum(["MERGE_ALL", "MERGE_COLUMNS", "MERGE_ROWS"]).optional(),
+    }),
+    handler: async (a: any) => {
+      const sheetId = await resolveSheetId(a.spreadsheetId, a.sheet_id, a.sheet_name);
+      return ok(
+        await runRequests(a.spreadsheetId, [
+          {
+            mergeCells: {
+              range: {
+                sheetId,
+                startRowIndex: a.start_row,
+                endRowIndex: a.end_row,
+                startColumnIndex: a.start_column,
+                endColumnIndex: a.end_column,
+              },
+              mergeType: a.merge_type ?? "MERGE_ALL",
+            },
+          },
+        ]),
+      );
+    },
+  },
+  {
+    name: "unmerge_cells",
+    description: "Unmerge all merges within the given cell range.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        spreadsheetId: { type: "string", description: SPREADSHEET_ID_DESC },
+        ...SHEET_REF_PROPS,
+        start_row: { type: "number" },
+        end_row: { type: "number" },
+        start_column: { type: "number" },
+        end_column: { type: "number" },
+      },
+      required: ["spreadsheetId", "start_row", "end_row", "start_column", "end_column"],
+    },
+    zod: sheetRefZod.extend({
+      spreadsheetId: z.string(),
+      start_row: z.number().int().min(0),
+      end_row: z.number().int().min(1),
+      start_column: z.number().int().min(0),
+      end_column: z.number().int().min(1),
+    }),
+    handler: async (a: any) => {
+      const sheetId = await resolveSheetId(a.spreadsheetId, a.sheet_id, a.sheet_name);
+      return ok(
+        await runRequests(a.spreadsheetId, [
+          {
+            unmergeCells: {
+              range: {
+                sheetId,
+                startRowIndex: a.start_row,
+                endRowIndex: a.end_row,
+                startColumnIndex: a.start_column,
+                endColumnIndex: a.end_column,
+              },
+            },
+          },
+        ]),
+      );
+    },
+  },
+  {
+    name: "format_cells",
+    description:
+      "Apply a CellFormat to a range. Pass a partial CellFormat object as 'format' (e.g. { backgroundColor: { red: 1 }, textFormat: { bold: true, fontSize: 12 }, horizontalAlignment: 'CENTER', numberFormat: { type: 'NUMBER', pattern: '#,##0.00' } }). Only the provided keys are updated. See https://developers.google.com/sheets/api/reference/rest/v4/spreadsheets/cells#CellFormat.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        spreadsheetId: { type: "string", description: SPREADSHEET_ID_DESC },
+        ...SHEET_REF_PROPS,
+        start_row: { type: "number" },
+        end_row: { type: "number" },
+        start_column: { type: "number" },
+        end_column: { type: "number" },
+        format: {
+          type: "object",
+          additionalProperties: true,
+          description: "Partial CellFormat. The keys you set determine the update mask.",
+        },
+      },
+      required: ["spreadsheetId", "start_row", "end_row", "start_column", "end_column", "format"],
+    },
+    zod: sheetRefZod.extend({
+      spreadsheetId: z.string(),
+      start_row: z.number().int().min(0),
+      end_row: z.number().int().min(1),
+      start_column: z.number().int().min(0),
+      end_column: z.number().int().min(1),
+      format: z.record(z.any()),
+    }),
+    handler: async (a: any) => {
+      const sheetId = await resolveSheetId(a.spreadsheetId, a.sheet_id, a.sheet_name);
+      const fields = buildFieldMask("userEnteredFormat", a.format);
+      return ok(
+        await runRequests(a.spreadsheetId, [
+          {
+            repeatCell: {
+              range: {
+                sheetId,
+                startRowIndex: a.start_row,
+                endRowIndex: a.end_row,
+                startColumnIndex: a.start_column,
+                endColumnIndex: a.end_column,
+              },
+              cell: { userEnteredFormat: a.format },
+              fields,
+            },
+          },
+        ]),
+      );
+    },
+  },
+  {
+    name: "set_borders",
+    description:
+      "Set borders on a range. Pass per-side Border objects in 'borders' (top/bottom/left/right/innerHorizontal/innerVertical). Each Border = { style: 'SOLID'|'DOTTED'|'DASHED'|'SOLID_MEDIUM'|'SOLID_THICK'|'DOUBLE'|'NONE', color?: { red,green,blue,alpha } }.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        spreadsheetId: { type: "string", description: SPREADSHEET_ID_DESC },
+        ...SHEET_REF_PROPS,
+        start_row: { type: "number" },
+        end_row: { type: "number" },
+        start_column: { type: "number" },
+        end_column: { type: "number" },
+        borders: {
+          type: "object",
+          additionalProperties: true,
+          description: "Object with optional keys: top, bottom, left, right, innerHorizontal, innerVertical.",
+        },
+      },
+      required: ["spreadsheetId", "start_row", "end_row", "start_column", "end_column", "borders"],
+    },
+    zod: sheetRefZod.extend({
+      spreadsheetId: z.string(),
+      start_row: z.number().int().min(0),
+      end_row: z.number().int().min(1),
+      start_column: z.number().int().min(0),
+      end_column: z.number().int().min(1),
+      borders: z.record(z.any()),
+    }),
+    handler: async (a: any) => {
+      const sheetId = await resolveSheetId(a.spreadsheetId, a.sheet_id, a.sheet_name);
+      return ok(
+        await runRequests(a.spreadsheetId, [
+          {
+            updateBorders: {
+              range: {
+                sheetId,
+                startRowIndex: a.start_row,
+                endRowIndex: a.end_row,
+                startColumnIndex: a.start_column,
+                endColumnIndex: a.end_column,
+              },
+              ...a.borders,
+            },
+          },
+        ]),
+      );
     },
   },
   {
