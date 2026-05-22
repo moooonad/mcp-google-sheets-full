@@ -1,12 +1,40 @@
 {
-  "name": "mcp-google-sheets",
+  "name": "mcp-google-sheets-full",
   "version": "0.1.0",
-  "description": "MCP server for full Google Sheets access via user OAuth (read, write, batchUpdate, and arbitrary Node scripts).",
+  "description": "The Google Sheets MCP server that can do anything the Sheets API can — 26 tools including read/write, structural batchUpdate, Drive search, and `run_sheets_script` to execute arbitrary Node code with pre-authenticated `sheets`/`drive`/`auth`/`spreadsheetId` in scope. OAuth user flow (no service account needed).",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "google-sheets",
+    "spreadsheet",
+    "claude",
+    "anthropic",
+    "claude-code",
+    "claude-desktop",
+    "google-drive",
+    "oauth",
+    "llm",
+    "ai-agent",
+    "sheets-api"
+  ],
+  "author": "Alfonso Cuccaro",
+  "license": "MIT",
+  "homepage": "https://github.com/alfonsocuccaro/mcp-google-sheets-full#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alfonsocuccaro/mcp-google-sheets-full.git"
+  },
+  "bugs": {
+    "url": "https://github.com/alfonsocuccaro/mcp-google-sheets-full/issues"
+  },
   "type": "module",
   "bin": {
-    "mcp-google-sheets": "dist/index.js"
+    "mcp-google-sheets-full": "dist/index.js"
   },
   "main": "dist/index.js",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "build": "tsc",
     "prepare": "tsc",
@@ -15,7 +43,8 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.4",

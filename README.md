@@ -1,31 +1,49 @@
-# mcp-google-sheets
+# mcp-google-sheets-full
 
-MCP server that gives any Claude session full read/write access to Google Sheets via the user's own Google account (OAuth Desktop flow — no service account needed).
+> The Google Sheets MCP server that can do **anything** the Sheets API can.
 
-It exposes:
+26 tools spanning read/write, structural batchUpdate, Drive search, and an escape hatch (`run_sheets_script`) that executes arbitrary Node.js code with `sheets` / `drive` / `auth` / `spreadsheetId` pre-injected — no service account required, just your own Google account.
 
-- **Convenience tools** for the common operations: `get_spreadsheet`, `get_values`, `batch_get_values`, `update_values`, `batch_update_values`, `append_values`, `clear_values`, `batch_update` (structural), `create_spreadsheet`, `resolve_url`, `auth_status`.
-- **`run_sheets_script`** — escape hatch that runs an arbitrary Node.js script with authenticated `sheets` / `drive` / `google` / `auth` / `spreadsheetId` already in scope. The script is written to a temp file, executed with `node`, and always deleted. This is how the underlying `gsheet-editor` agent operated; the MCP server preserves that "do anything the Sheets API allows" capability.
+## Why this server
 
-`spreadsheetId` is **always an explicit parameter** of every tool — there is no default.
+Most Google Sheets MCP servers expose a curated set of operations and stop there. If you need something they didn't anticipate (a particular conditional-format request, a multi-step migration, a Drive-side operation, an analysis-then-write workflow), you're stuck.
+
+This server adds the missing primitive: **`run_sheets_script`**. Pass a snippet of Node code, get back the result. The Sheets v4 and Drive v3 clients are already authenticated and in scope. The temp file is always cleaned up.
+
+| | **`mcp-google-sheets-full`** | `freema/mcp-gsheets` | `xing5/mcp-google-sheets` | `ringo380/claude-google-sheets-mcp` |
+| --- | :-: | :-: | :-: | :-: |
+| Read / write / append / clear | ✅ | ✅ | ✅ | ✅ |
+| Structural `batchUpdate` (raw) | ✅ | partial | ❌ | ❌ |
+| Granular tabs / rows / format / borders | ✅ | ✅ | partial | ❌ |
+| Drive search (`list` / `search_spreadsheets`) | ✅ | ❌ | partial | ❌ |
+| Arbitrary code execution (`run_sheets_script`) | ✅ | ❌ | ❌ | ❌ |
+| OAuth user flow (no service account) | ✅ default | service-account-first | both | both |
+| Language | TypeScript / Node | TypeScript / Node | Python | Python |
+
+`spreadsheetId` is **always an explicit parameter** of every tool — there is no hidden default.
+
+## Security model
+
+`run_sheets_script` executes Node code on the machine where the MCP server runs, under your user account, against your OAuth token. The trust boundary is the same as any tool that lets Claude run code on your behalf (`Bash`, `Edit`, `Write`):
+
+- The script can only do what the OAuth scopes allow (Sheets + Drive). It cannot touch your other Google services, your filesystem outside `tmpdir`, or the network in ways the host node process can't.
+- Every script gets a fresh temp file in `os.tmpdir()`, executed via `node`, deleted on completion (success or failure).
+- There is a per-call timeout (default 2 min, max 10 min).
+- The token never leaves disk: the OAuth file lives in `~/.mcp-google-sheets/`.
+
+If you're not comfortable with code execution, simply don't call `run_sheets_script` — the other 25 tools cover the common cases without it.
 
 ## Setup (one-time)
 
-### 1. Install from the repo
-
-Installs globally and puts an `mcp-google-sheets` executable in your PATH. The TypeScript build runs automatically via the `prepare` npm hook.
+### 1. Install
 
 ```bash
-# SSH (you must have access to the GitLab repo)
-npm install -g git+ssh://git@gitlab.com/webapp-srl/tools/mcp-google-sheets.git
-
-# or HTTPS
-npm install -g git+https://gitlab.com/webapp-srl/tools/mcp-google-sheets.git
+npm install -g mcp-google-sheets-full
 ```
 
-To update later, run the same command again. To uninstall: `npm uninstall -g mcp-google-sheets`.
+This places an `mcp-google-sheets-full` executable on your PATH. To update: re-run the same command. To remove: `npm uninstall -g mcp-google-sheets-full`.
 
-(For local development, clone the repo and run `npm install && npm run build`.)
+For development: clone the repo and run `npm install && npm run build`.
 
 ### 2. Create an OAuth Client ID (Desktop app)
 
@@ -52,12 +70,12 @@ If a refresh fails (e.g. the token was revoked), delete `gdrive-token.json` and 
 
 ## Register the server
 
-After global install the `mcp-google-sheets` binary is on PATH.
+After global install the `mcp-google-sheets-full` binary is on PATH.
 
 ### Claude Code (project or user scope)
 
 ```bash
-claude mcp add google-sheets -- mcp-google-sheets
+claude mcp add google-sheets -- mcp-google-sheets-full
 ```
 
 ### Claude Desktop (`claude_desktop_config.json`)
@@ -66,13 +84,13 @@ claude mcp add google-sheets -- mcp-google-sheets
 {
   "mcpServers": {
     "google-sheets": {
-      "command": "mcp-google-sheets"
+      "command": "mcp-google-sheets-full"
     }
   }
 }
 ```
 
-If the `mcp-google-sheets` command is not found by Claude Desktop (it sometimes ignores PATH on macOS/Windows), use the absolute path npm reported with `npm bin -g` plus `/mcp-google-sheets` (or `.cmd` on Windows).
+If Claude Desktop can't find the command (it sometimes ignores PATH on macOS/Windows), use the absolute path from `npm bin -g` followed by `/mcp-google-sheets-full` (or `.cmd` on Windows).
 
 Optional env:
 
