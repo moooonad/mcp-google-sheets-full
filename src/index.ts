@@ -21,6 +21,10 @@ function ok(data: unknown) {
   };
 }
 
+function escapeDriveLiteral(s: string): string {
+  return s.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+}
+
 const SPREADSHEET_ID_DESC =
   "Google Sheets spreadsheet ID (the string between /d/ and /edit in the URL). Always required and explicit — there is no default.";
 
@@ -304,6 +308,93 @@ const tools = [
         },
       });
       return ok(res.data);
+    },
+  },
+  {
+    name: "list_spreadsheets",
+    description:
+      "List Google Sheets files in the user's Drive (most-recently-modified first). Returns id, name, modifiedTime, webViewLink. Use this when the user mentions a sheet by name without giving the ID.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        page_size: { type: "number", description: "Max results (1-1000, default 50)." },
+        order_by: {
+          type: "string",
+          description:
+            "Drive 'orderBy' string, e.g. 'modifiedTime desc' (default), 'name', 'createdTime desc'.",
+        },
+        include_shared_drives: {
+          type: "boolean",
+          description: "Include items in Shared Drives. Default true.",
+        },
+      },
+    },
+    zod: z.object({
+      page_size: z.number().int().min(1).max(1000).optional(),
+      order_by: z.string().optional(),
+      include_shared_drives: z.boolean().optional(),
+    }),
+    handler: async (a: any) => {
+      const drive = await getDriveClient();
+      const includeShared = a.include_shared_drives ?? true;
+      const res = await drive.files.list({
+        q: "mimeType='application/vnd.google-apps.spreadsheet' and trashed=false",
+        pageSize: a.page_size ?? 50,
+        orderBy: a.order_by ?? "modifiedTime desc",
+        fields: "files(id,name,modifiedTime,createdTime,owners(emailAddress,displayName),webViewLink,driveId)",
+        includeItemsFromAllDrives: includeShared,
+        supportsAllDrives: includeShared,
+      });
+      return ok(res.data.files ?? []);
+    },
+  },
+  {
+    name: "search_spreadsheets",
+    description:
+      "Search spreadsheets in the user's Drive by name (substring, case-insensitive) and/or full-text content. At least one of `name_contains` or `full_text` is required. Use this when the user refers to a sheet by part of its title.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name_contains: { type: "string", description: "Substring of the file name." },
+        full_text: { type: "string", description: "Full-text search across spreadsheet content." },
+        page_size: { type: "number", description: "Max results (1-1000, default 50)." },
+        order_by: { type: "string", description: "Drive orderBy, default 'modifiedTime desc'." },
+        include_shared_drives: { type: "boolean", description: "Default true." },
+      },
+    },
+    zod: z
+      .object({
+        name_contains: z.string().optional(),
+        full_text: z.string().optional(),
+        page_size: z.number().int().min(1).max(1000).optional(),
+        order_by: z.string().optional(),
+        include_shared_drives: z.boolean().optional(),
+      })
+      .refine((v) => v.name_contains || v.full_text, {
+        message: "Provide at least one of name_contains or full_text.",
+      }),
+    handler: async (a: any) => {
+      const drive = await getDriveClient();
+      const includeShared = a.include_shared_drives ?? true;
+      const clauses = [
+        "mimeType='application/vnd.google-apps.spreadsheet'",
+        "trashed=false",
+      ];
+      if (a.name_contains) {
+        clauses.push(`name contains '${escapeDriveLiteral(a.name_contains)}'`);
+      }
+      if (a.full_text) {
+        clauses.push(`fullText contains '${escapeDriveLiteral(a.full_text)}'`);
+      }
+      const res = await drive.files.list({
+        q: clauses.join(" and "),
+        pageSize: a.page_size ?? 50,
+        orderBy: a.order_by ?? "modifiedTime desc",
+        fields: "files(id,name,modifiedTime,createdTime,owners(emailAddress,displayName),webViewLink,driveId)",
+        includeItemsFromAllDrives: includeShared,
+        supportsAllDrives: includeShared,
+      });
+      return ok(res.data.files ?? []);
     },
   },
   {

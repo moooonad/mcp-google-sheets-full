@@ -106,6 +106,8 @@ The harness wraps the code in an async IIFE, so top-level `await` works directly
 | --- | --- |
 | `auth_status` | Where the server looks for credentials/token and whether they exist. |
 | `resolve_url` | Extract `spreadsheetId` + `gid` from a Google Sheets URL. |
+| `list_spreadsheets` | List spreadsheets in the user's Drive (recent-first). |
+| `search_spreadsheets` | Search spreadsheets by name substring or full-text content. |
 | `get_spreadsheet` | Spreadsheet metadata (tabs, gridProperties). |
 | `get_values` | Read one A1 range. |
 | `batch_get_values` | Read multiple ranges. |
