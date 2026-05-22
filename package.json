@@ -19,13 +19,13 @@
   ],
   "author": "Alfonso Cuccaro",
   "license": "MIT",
-  "homepage": "https://github.com/alfonsocuccaro/mcp-google-sheets-full#readme",
+  "homepage": "https://github.com/moooonad/mcp-google-sheets-full#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/alfonsocuccaro/mcp-google-sheets-full.git"
+    "url": "git+https://github.com/moooonad/mcp-google-sheets-full.git"
   },
   "bugs": {
-    "url": "https://github.com/alfonsocuccaro/mcp-google-sheets-full/issues"
+    "url": "https://github.com/moooonad/mcp-google-sheets-full/issues"
   },
   "type": "module",
   "bin": {
