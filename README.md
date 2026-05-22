@@ -33,6 +33,10 @@ This server adds the missing primitive: **`run_sheets_script`**. Pass a snippet 
 
 If you're not comfortable with code execution, simply don't call `run_sheets_script` — the other 25 tools cover the common cases without it.
 
+## For AI agents
+
+If you're an AI agent (Claude Code, Cursor, etc.) installing or operating this server for a user, read [`AGENTS.md`](./AGENTS.md). It contains the canonical step-by-step setup flow, tool selection guide, common failure modes, and the trust/security expectations.
+
 ## Setup (one-time)
 
 ### 1. Install
