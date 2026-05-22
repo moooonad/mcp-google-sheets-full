@@ -1,0 +1,24 @@
+{
+  "name": "mcp-google-sheets",
+  "version": "0.1.0",
+  "description": "MCP server for full Google Sheets access via user OAuth (read, write, batchUpdate, and arbitrary Node scripts).",
+  "type": "module",
+  "bin": {
+    "mcp-google-sheets": "dist/index.js"
+  },
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "googleapis": "^144.0.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
+  }
+}
