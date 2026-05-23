@@ -1,0 +1,17 @@
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    required: []
+    properties:
+      gsheetsConfigDir:
+        type: string
+        description: "Optional. Override the directory where OAuth credentials and token are stored. Default: ~/.mcp-google-sheets"
+  commandFunction:
+    |-
+    (config) => ({
+      command: 'mcp-google-sheets-full',
+      args: [],
+      env: config.gsheetsConfigDir ? { GSHEETS_CONFIG_DIR: config.gsheetsConfigDir } : {}
+    })
+  exampleConfig: {}
