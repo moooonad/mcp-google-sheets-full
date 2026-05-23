@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>mcp-google-sheets-full — full-featured Google Sheets MCP for Claude</title>
+<meta name="description" content="The only Google Sheets MCP server that can do anything the Sheets API can. 26 tools + run_sheets_script escape hatch. User OAuth, no service account.">
+<meta property="og:title" content="mcp-google-sheets-full">
+<meta property="og:description" content="The only Google Sheets MCP server that can do anything the Sheets API can.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://moooonad.github.io/mcp-google-sheets-full/">
+<meta name="twitter:card" content="summary_large_image">
+<style>
+:root {
+  --bg: #0b0d10;
+  --bg-2: #121519;
+  --bg-3: #1a1e23;
+  --fg: #e6e9ef;
+  --fg-dim: #8b94a3;
+  --accent: #4fd1c5;
+  --accent-dim: #2c7a73;
+  --border: #232830;
+  --good: #4fd1c5;
+  --bad: #4a525c;
+  --partial: #d9a857;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+.container { max-width: 960px; margin: 0 auto; padding: 0 24px; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code, pre { font-family: "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
+code { background: var(--bg-3); padding: 2px 6px; border-radius: 4px; font-size: 0.9em; }
+
+/* Hero */
+.hero { padding: 80px 0 60px; text-align: center; border-bottom: 1px solid var(--border); }
+.hero h1 { font-size: 2.4rem; margin: 0 0 12px; letter-spacing: -0.02em; }
+.hero .tagline { font-size: 1.25rem; color: var(--fg-dim); margin: 0 auto 32px; max-width: 640px; }
+.hero .tagline strong { color: var(--accent); font-weight: 500; }
+.hero .buttons { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+.btn {
+  display: inline-block;
+  padding: 12px 24px;
+  border-radius: 6px;
+  font-weight: 500;
+  font-size: 0.95rem;
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  color: var(--fg);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.btn:hover { background: var(--bg-3); text-decoration: none; }
+.btn-primary { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+.btn-primary:hover { background: var(--accent-dim); color: var(--bg); border-color: var(--accent-dim); }
+
+/* Install box */
+.install { padding: 48px 0; }
+.install-box {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 18px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  font-family: "SF Mono", Menlo, Monaco, Consolas, monospace;
+  font-size: 0.95rem;
+}
+.install-box code { background: transparent; padding: 0; color: var(--fg); }
+.install-box .prompt { color: var(--accent); margin-right: 8px; user-select: none; }
+.copy-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--fg-dim);
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  white-space: nowrap;
+  font-family: inherit;
+}
+.copy-btn:hover { color: var(--fg); border-color: var(--fg-dim); }
+.copy-btn.copied { color: var(--accent); border-color: var(--accent); }
+.install p.next { color: var(--fg-dim); font-size: 0.95rem; text-align: center; margin: 16px 0 0; }
+.install p.next code { background: var(--bg-2); }
+
+/* Demo placeholder */
+.demo { padding: 24px 0 64px; }
+.demo .frame {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  aspect-ratio: 16/9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-dim);
+  text-align: center;
+  padding: 24px;
+}
+.demo .frame img { max-width: 100%; max-height: 100%; border-radius: 6px; }
+
+/* Sections */
+section { padding: 56px 0; border-top: 1px solid var(--border); }
+section h2 { font-size: 1.6rem; margin: 0 0 24px; letter-spacing: -0.01em; }
+section p { color: var(--fg-dim); margin: 0 0 16px; }
+
+/* Comparison table */
+.compare { overflow-x: auto; }
+.compare table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.compare th, .compare td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.compare th { font-weight: 500; color: var(--fg-dim); }
+.compare td.col-name { font-weight: 500; }
+.compare td.center { text-align: center; }
+.compare .yes { color: var(--good); }
+.compare .no { color: var(--bad); }
+.compare .partial { color: var(--partial); font-size: 0.85em; }
+.compare .ours { background: rgba(79, 209, 197, 0.05); }
+.compare th.ours { color: var(--accent); }
+
+/* Tools grid */
+.tools-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px 16px;
+}
+.tools-grid .group { color: var(--fg-dim); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 12px; grid-column: 1 / -1; }
+.tools-grid .tool { font-family: "SF Mono", Menlo, monospace; font-size: 0.9rem; color: var(--fg); }
+.tools-grid .tool small { color: var(--fg-dim); font-family: inherit; font-size: 0.85em; display: block; }
+
+/* Security */
+.security ul { padding-left: 20px; color: var(--fg-dim); }
+.security li { margin: 8px 0; }
+.security strong { color: var(--fg); font-weight: 500; }
+
+/* Footer */
+footer { padding: 40px 0; border-top: 1px solid var(--border); text-align: center; color: var(--fg-dim); font-size: 0.9rem; }
+footer a { margin: 0 10px; }
+
+@media (max-width: 600px) {
+  .hero h1 { font-size: 1.8rem; }
+  .hero .tagline { font-size: 1.05rem; }
+  .install-box { flex-direction: column; align-items: stretch; }
+  .copy-btn { align-self: flex-end; }
+  section { padding: 40px 0; }
+}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="container">
+    <h1>mcp-google-sheets-full</h1>
+    <p class="tagline">The only Google Sheets MCP server that can do <strong>anything</strong> the Sheets API can.</p>
+    <div class="buttons">
+      <a class="btn btn-primary" href="#install">Install</a>
+      <a class="btn" href="https://github.com/moooonad/mcp-google-sheets-full">GitHub</a>
+      <a class="btn" href="https://www.npmjs.com/package/mcp-google-sheets-full">npm</a>
+    </div>
+  </div>
+</header>
+
+<section class="install" id="install">
+  <div class="container">
+    <h2>Install</h2>
+    <div class="install-box">
+      <code><span class="prompt">$</span>npm install -g mcp-google-sheets-full</code>
+      <button class="copy-btn" data-copy="npm install -g mcp-google-sheets-full">Copy</button>
+    </div>
+    <p class="next">Then register in Claude Code: <code>claude mcp add google-sheets -- mcp-google-sheets-full --scope user</code></p>
+  </div>
+</section>
+
+<section class="demo">
+  <div class="container">
+    <div class="frame">
+      <div>
+        <div style="font-size: 2rem; margin-bottom: 8px;">📺</div>
+        <div>Demo GIF coming soon</div>
+        <div style="font-size: 0.85rem; margin-top: 4px;">(Claude editing a sheet in real time)</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="container">
+    <h2>Why this server</h2>
+    <p>Most Google Sheets MCP servers expose a curated set of operations and stop there. If you need something they didn't anticipate — a particular conditional-format request, a multi-step migration, a Drive-side operation, an analysis-then-write workflow — you're stuck.</p>
+    <p>This one adds the missing primitive: <code>run_sheets_script</code>. Pass a snippet of Node code, get back the result. The Sheets v4 and Drive v3 clients are already authenticated and in scope. The temp file is always cleaned up.</p>
+    <div class="compare">
+      <table>
+        <thead>
+          <tr>
+            <th></th>
+            <th class="ours center">mcp-google-sheets-full</th>
+            <th class="center">freema/mcp-gsheets</th>
+            <th class="center">xing5/mcp-google-sheets</th>
+            <th class="center">ringo380/...</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="col-name">Read / write / append / clear</td>
+            <td class="center ours yes">✓</td>
+            <td class="center yes">✓</td>
+            <td class="center yes">✓</td>
+            <td class="center yes">✓</td>
+          </tr>
+          <tr>
+            <td class="col-name">Structural batchUpdate (raw)</td>
+            <td class="center ours yes">✓</td>
+            <td class="center partial">partial</td>
+            <td class="center no">✗</td>
+            <td class="center no">✗</td>
+          </tr>
+          <tr>
+            <td class="col-name">Granular tabs / rows / format / borders</td>
+            <td class="center ours yes">✓</td>
+            <td class="center yes">✓</td>
+            <td class="center partial">partial</td>
+            <td class="center no">✗</td>
+          </tr>
+          <tr>
+            <td class="col-name">Drive search (list / search_spreadsheets)</td>
+            <td class="center ours yes">✓</td>
+            <td class="center no">✗</td>
+            <td class="center partial">partial</td>
+            <td class="center no">✗</td>
+          </tr>
+          <tr>
+            <td class="col-name">Arbitrary code execution (<code>run_sheets_script</code>)</td>
+            <td class="center ours yes">✓</td>
+            <td class="center no">✗</td>
+            <td class="center no">✗</td>
+            <td class="center no">✗</td>
+          </tr>
+          <tr>
+            <td class="col-name">OAuth user flow (no service account)</td>
+            <td class="center ours yes">default</td>
+            <td class="center partial">service-account-first</td>
+            <td class="center partial">both</td>
+            <td class="center partial">both</td>
+          </tr>
+          <tr>
+            <td class="col-name">Language</td>
+            <td class="center ours">TypeScript / Node</td>
+            <td class="center">TypeScript / Node</td>
+            <td class="center">Python</td>
+            <td class="center">Python</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="container">
+    <h2>26 tools</h2>
+    <div class="tools-grid">
+      <div class="group">Read</div>
+      <div class="tool">get_spreadsheet <small>metadata, tabs, gridProperties</small></div>
+      <div class="tool">get_values <small>one A1 range</small></div>
+      <div class="tool">batch_get_values <small>multiple ranges</small></div>
+
+      <div class="group">Write</div>
+      <div class="tool">update_values</div>
+      <div class="tool">batch_update_values</div>
+      <div class="tool">append_values</div>
+      <div class="tool">clear_values</div>
+
+      <div class="group">Tabs</div>
+      <div class="tool">add_sheet</div>
+      <div class="tool">delete_sheet</div>
+      <div class="tool">duplicate_sheet</div>
+      <div class="tool">rename_sheet</div>
+
+      <div class="group">Structure</div>
+      <div class="tool">insert_rows</div>
+      <div class="tool">insert_columns</div>
+      <div class="tool">delete_rows</div>
+      <div class="tool">delete_columns</div>
+      <div class="tool">merge_cells</div>
+      <div class="tool">unmerge_cells</div>
+
+      <div class="group">Formatting</div>
+      <div class="tool">format_cells <small>backgroundColor, textFormat, numberFormat, alignment...</small></div>
+      <div class="tool">set_borders</div>
+
+      <div class="group">Drive &amp; lifecycle</div>
+      <div class="tool">list_spreadsheets</div>
+      <div class="tool">search_spreadsheets</div>
+      <div class="tool">create_spreadsheet</div>
+      <div class="tool">resolve_url <small>extract spreadsheetId + gid from a URL</small></div>
+      <div class="tool">auth_status</div>
+
+      <div class="group">Escape hatches</div>
+      <div class="tool">batch_update <small>raw Sheets API Request[]</small></div>
+      <div class="tool" style="color: var(--accent);">run_sheets_script <small>arbitrary Node with sheets/drive/auth in scope</small></div>
+    </div>
+  </div>
+</section>
+
+<section class="security">
+  <div class="container">
+    <h2>Security model</h2>
+    <p><code>run_sheets_script</code> executes Node code on your machine, under your user account, against your OAuth token. The trust boundary is the same as any tool that lets Claude run code on your behalf (<code>Bash</code>, <code>Edit</code>, <code>Write</code>):</p>
+    <ul>
+      <li>The script can only do what the <strong>OAuth scopes</strong> allow (Sheets + Drive). It cannot touch your other Google services.</li>
+      <li>Every script gets a fresh temp file in <code>os.tmpdir()</code>, executed via <code>node</code>, deleted on completion (success or failure).</li>
+      <li>Per-call <strong>timeout</strong> (default 2 min, max 10 min).</li>
+      <li>The token never leaves disk: it lives in <code>~/.mcp-google-sheets/</code>.</li>
+    </ul>
+    <p>Not comfortable with code execution? Don't call <code>run_sheets_script</code> — the other 25 tools cover the common cases without it.</p>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <a href="https://github.com/moooonad/mcp-google-sheets-full">GitHub</a> ·
+    <a href="https://www.npmjs.com/package/mcp-google-sheets-full">npm</a> ·
+    <a href="https://registry.modelcontextprotocol.io/v0/servers?search=mcp-google-sheets-full">MCP Registry</a> ·
+    <a href="https://github.com/moooonad/mcp-google-sheets-full/blob/main/AGENTS.md">AGENTS.md</a>
+    <div style="margin-top: 12px; font-size: 0.85rem;">MIT · © 2026 moooonad</div>
+  </div>
+</footer>
+
+<script>
+document.querySelectorAll('.copy-btn').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const text = btn.dataset.copy;
+    try {
+      await navigator.clipboard.writeText(text);
+      const orig = btn.textContent;
+      btn.textContent = 'Copied!';
+      btn.classList.add('copied');
+      setTimeout(() => { btn.textContent = orig; btn.classList.remove('copied'); }, 1500);
+    } catch (e) {
+      btn.textContent = 'Press Ctrl+C';
+    }
+  });
+});
+</script>
+
+</body>
+</html>
