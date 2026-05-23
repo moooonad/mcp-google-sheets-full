@@ -1,13 +1,26 @@
-// OAuth Desktop flow per Google Sheets + Drive.
-// Porting di C:\dev\vari\gsheet-editor\sheets-auth.js, senza loadSpreadsheetId
-// (lo spreadsheetId arriva sempre come parametro dei tool).
+// Two auth modes:
 //
-// Posizione credenziali / token:
-//   - cartella configurabile via env GSHEETS_CONFIG_DIR
+//   1. OAuth Desktop (default)
+//      - For interactive use (Claude Desktop, Claude Code, Cursor).
+//      - User downloads an OAuth Client ID JSON from Google Cloud Console
+//        ("Desktop app" type) and saves it to ~/.mcp-google-sheets/gdrive-credentials.json.
+//      - First call opens the browser; token is persisted in gdrive-token.json.
+//      - The script runs as the user — anything they can see, the server can see.
+//
+//   2. Service account (opt-in, headless)
+//      - For CI / serverless / unattended automation.
+//      - Set env var GOOGLE_APPLICATION_CREDENTIALS to the path of a service
+//        account JSON key (downloaded from IAM & Admin → Service Accounts).
+//      - The spreadsheet must be shared with the service account's
+//        client_email (as Editor or Viewer) for it to be accessible.
+//      - No browser flow, no per-user token.
+//
+// Selection logic: if GOOGLE_APPLICATION_CREDENTIALS is set and non-empty,
+// service account mode is used; otherwise OAuth mode.
+//
+// Storage for OAuth files:
+//   - directory configurable via env GSHEETS_CONFIG_DIR
 //   - default: ~/.mcp-google-sheets
-// File attesi nella cartella:
-//   - gdrive-credentials.json  (OAuth Client ID tipo "Desktop", scaricato da Google Cloud Console)
-//   - gdrive-token.json        (generato automaticamente al primo avvio)
 
 import fs from "node:fs";
 import path from "node:path";
@@ -24,6 +37,8 @@ const SCOPES = [
 const REDIRECT_PORT = 3456;
 const REDIRECT = `http://localhost:${REDIRECT_PORT}`;
 
+export type AuthMode = "oauth" | "service_account";
+
 function configDir(): string {
   const env = process.env.GSHEETS_CONFIG_DIR?.trim();
   if (env) return env;
@@ -36,6 +51,15 @@ function credentialsPath(): string {
 
 function tokenPath(): string {
   return path.join(configDir(), "gdrive-token.json");
+}
+
+function serviceAccountKeyPath(): string | null {
+  const env = process.env.GOOGLE_APPLICATION_CREDENTIALS?.trim();
+  return env || null;
+}
+
+export function getAuthMode(): AuthMode {
+  return serviceAccountKeyPath() ? "service_account" : "oauth";
 }
 
 function openBrowser(url: string): void {
@@ -96,7 +120,8 @@ export async function getOAuthClient(): Promise<OAuth2Client> {
       `OAuth credentials not found at ${credPath}. ` +
         `Create an OAuth Client ID of type "Desktop app" in Google Cloud Console ` +
         `(with Sheets API and Drive API enabled) and save the downloaded JSON there. ` +
-        `Override location via env GSHEETS_CONFIG_DIR.`,
+        `Override location via env GSHEETS_CONFIG_DIR. ` +
+        `For unattended/CI use, set GOOGLE_APPLICATION_CREDENTIALS to a service account key path instead.`,
     );
   }
   const creds = JSON.parse(fs.readFileSync(credPath, "utf8"));
@@ -147,10 +172,31 @@ export async function getOAuthClient(): Promise<OAuth2Client> {
   return oauth2Client;
 }
 
-let cachedAuth: Promise<OAuth2Client> | null = null;
+async function getServiceAccountClient(): Promise<any> {
+  const keyFile = serviceAccountKeyPath();
+  if (!keyFile) {
+    throw new Error(
+      "GOOGLE_APPLICATION_CREDENTIALS env var is required for service account mode.",
+    );
+  }
+  if (!fs.existsSync(keyFile)) {
+    throw new Error(
+      `Service account key file not found at ${keyFile} ` +
+        `(from GOOGLE_APPLICATION_CREDENTIALS). ` +
+        `Download a JSON key from Google Cloud Console → IAM & Admin → Service Accounts → Keys.`,
+    );
+  }
+  const ga = new google.auth.GoogleAuth({ keyFile, scopes: SCOPES });
+  return await ga.getClient();
+}
 
-export function getAuthCached(): Promise<OAuth2Client> {
-  if (!cachedAuth) cachedAuth = getOAuthClient();
+let cachedAuth: Promise<any> | null = null;
+
+export function getAuthCached(): Promise<any> {
+  if (!cachedAuth) {
+    cachedAuth =
+      getAuthMode() === "service_account" ? getServiceAccountClient() : getOAuthClient();
+  }
   return cachedAuth;
 }
 
@@ -165,9 +211,24 @@ export async function getDriveClient() {
 }
 
 export function getConfigPaths() {
+  const mode = getAuthMode();
+  const saKey = serviceAccountKeyPath();
   return {
+    auth_mode: mode,
     configDir: configDir(),
     credentialsPath: credentialsPath(),
     tokenPath: tokenPath(),
+    service_account_key_path: saKey,
   };
+}
+
+export function getServiceAccountEmail(): string | null {
+  const keyFile = serviceAccountKeyPath();
+  if (!keyFile || !fs.existsSync(keyFile)) return null;
+  try {
+    const data = JSON.parse(fs.readFileSync(keyFile, "utf8"));
+    return data.client_email ?? null;
+  } catch {
+    return null;
+  }
 }

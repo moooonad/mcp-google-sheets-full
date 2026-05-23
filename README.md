@@ -2,7 +2,7 @@
 
 > The Google Sheets MCP server that can do **anything** the Sheets API can.
 
-26 tools spanning read/write, structural batchUpdate, Drive search, and an escape hatch (`run_sheets_script`) that executes arbitrary Node.js code with `sheets` / `drive` / `auth` / `spreadsheetId` pre-injected — no service account required, just your own Google account.
+26 tools spanning read/write, structural batchUpdate, Drive search, and an escape hatch (`run_sheets_script`) that executes arbitrary Node.js code with `sheets` / `drive` / `auth` / `spreadsheetId` pre-injected. Two auth modes: **OAuth** (default, your own Google account, zero per-sheet setup) or **service account** (opt-in, for headless / CI).
 
 ## Why this server
 
@@ -17,7 +17,7 @@ This server adds the missing primitive: **`run_sheets_script`**. Pass a snippet 
 | Granular tabs / rows / format / borders | ✅ | ✅ | partial | ❌ |
 | Drive search (`list` / `search_spreadsheets`) | ✅ | ❌ | partial | ❌ |
 | Arbitrary code execution (`run_sheets_script`) | ✅ | ❌ | ❌ | ❌ |
-| OAuth user flow (no service account) | ✅ default | service-account-first | both | both |
+| Auth modes | ✅ OAuth default + service account opt-in | service-account-first | both | both |
 | Language | TypeScript / Node | TypeScript / Node | Python | Python |
 
 `spreadsheetId` is **always an explicit parameter** of every tool — there is no hidden default.
@@ -49,16 +49,29 @@ This places an `mcp-google-sheets-full` executable on your PATH. To update: re-r
 
 For development: clone the repo and run `npm install && npm run build`.
 
-### 2. Create an OAuth Client ID (Desktop app)
+### 2. Choose an auth mode
 
-This replaces the service-account flow that most "Google Sheets MCP" servers require. You only do this once per machine.
+Two ways to authenticate the server. **Pick exactly one** depending on how you will use it.
+
+| | OAuth (default) | Service account |
+| --- | --- | --- |
+| Best for | Claude Desktop / Code / Cursor on your laptop | CI, cron, serverless, headless automation |
+| Setup effort | 1 file in `~/.mcp-google-sheets/` | 1 file anywhere + 1 env var |
+| Acts as | **You** (your Google account) | A **bot identity** |
+| Sees | Every sheet you can see | Only sheets explicitly shared with the bot email |
+| Requires a browser? | Yes (once, on first call) | Never |
+| Token refresh | Automatic | N/A |
+
+Selection is automatic: if the env var `GOOGLE_APPLICATION_CREDENTIALS` is set, the server uses **service account** mode; otherwise it uses **OAuth** mode.
+
+#### OAuth setup
 
 1. Go to <https://console.cloud.google.com/>, create or select a project.
 2. **APIs & Services → Library**: enable **Google Sheets API** and **Google Drive API**.
 3. **APIs & Services → OAuth consent screen**: set up an "External" app (or "Internal" if you have a Workspace). Add yourself as a test user.
 4. **APIs & Services → Credentials → Create Credentials → OAuth client ID**:
    - Application type: **Desktop app**.
-   - Name: anything (e.g. `mcp-google-sheets`).
+   - Name: anything.
 5. Download the JSON.
 6. Save it to:
    - Windows: `%USERPROFILE%\.mcp-google-sheets\gdrive-credentials.json`
@@ -66,11 +79,20 @@ This replaces the service-account flow that most "Google Sheets MCP" servers req
 
    (Override the directory via env `GSHEETS_CONFIG_DIR`.)
 
-### 3. First-run authorization
+The first time any tool runs, the server opens your browser to grant access. The resulting token is saved to `gdrive-token.json` next to the credentials. Subsequent runs refresh silently. If a refresh fails (e.g. the token was revoked), delete `gdrive-token.json` and the next call re-triggers the browser flow.
 
-The first time any tool runs, the server opens your browser to grant access. The resulting token is saved to `gdrive-token.json` next to the credentials. Subsequent runs refresh silently.
+#### Service account setup (opt-in, headless)
 
-If a refresh fails (e.g. the token was revoked), delete `gdrive-token.json` and the next call re-runs the browser flow.
+1. In Google Cloud Console, enable **Google Sheets API** and **Google Drive API** on your project (same as OAuth).
+2. **IAM & Admin → Service Accounts → Create service account**. Give it a name; no roles needed at the project level for our use case.
+3. Open the service account → **Keys → Add Key → JSON**. Download the file.
+4. Place the file anywhere readable (e.g. `~/.mcp-google-sheets/sa-key.json` or a CI secret path).
+5. Set the env var when launching the server:
+   - Shell: `export GOOGLE_APPLICATION_CREDENTIALS=/absolute/path/to/sa-key.json`
+   - Claude config: add it under the server entry (see below).
+6. **Share every spreadsheet you want the server to access with the service account's email** (visible inside the key JSON as `client_email`, looks like `xxx@yyy.iam.gserviceaccount.com`). Without this, calls return 403 even though the credentials are valid.
+
+There is no token file in this mode; the server gets fresh access tokens on demand. No browser flow.
 
 ## Register the server
 
@@ -84,6 +106,8 @@ claude mcp add google-sheets -- mcp-google-sheets-full
 
 ### Claude Desktop (`claude_desktop_config.json`)
 
+OAuth mode (default):
+
 ```json
 {
   "mcpServers": {
@@ -94,11 +118,27 @@ claude mcp add google-sheets -- mcp-google-sheets-full
 }
 ```
 
+Service account mode — add the env var to switch the server into headless auth:
+
+```json
+{
+  "mcpServers": {
+    "google-sheets": {
+      "command": "mcp-google-sheets-full",
+      "env": {
+        "GOOGLE_APPLICATION_CREDENTIALS": "/absolute/path/to/sa-key.json"
+      }
+    }
+  }
+}
+```
+
 If Claude Desktop can't find the command (it sometimes ignores PATH on macOS/Windows), use the absolute path from `npm bin -g` followed by `/mcp-google-sheets-full` (or `.cmd` on Windows).
 
-Optional env:
+Recognized env vars:
 
-- `GSHEETS_CONFIG_DIR` — override the directory where credentials/token live.
+- `GOOGLE_APPLICATION_CREDENTIALS` — if set to a service account JSON key path, the server switches to service account mode. If unset, OAuth mode.
+- `GSHEETS_CONFIG_DIR` — override the directory where OAuth credentials/token live (default: `~/.mcp-google-sheets`).
 
 ## Using `run_sheets_script`
 

@@ -7,7 +7,7 @@
 //   - `drive`          (client googleapis Drive v3 autenticato)
 //   - `google`         (namespace googleapis)
 //   - `spreadsheetId`  (string, passato dal chiamante)
-//   - `auth`           (OAuth2Client autenticato)
+//   - `auth`           (AuthClient autenticato — OAuth2Client o ServiceAccount)
 //   - tutto il runtime Node (`require`, `process`, ecc.)
 //
 // Convenzione: lo script può stampare con console.log; per "ritornare" un valore
@@ -19,7 +19,7 @@ import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 import { spawn } from "node:child_process";
-import { getConfigPaths } from "./auth.js";
+import { getConfigPaths, getAuthMode } from "./auth.js";
 
 export interface RunResult {
   stdout: string;
@@ -34,21 +34,34 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-const __CFG_DIR = process.env.__MCP_GSHEETS_CFG_DIR;
-const __CRED = JSON.parse(fs.readFileSync(path.join(__CFG_DIR, 'gdrive-credentials.json'), 'utf8'));
-const __TOK = JSON.parse(fs.readFileSync(path.join(__CFG_DIR, 'gdrive-token.json'), 'utf8'));
-const __installed = __CRED.installed || __CRED.web;
-const auth = new google.auth.OAuth2(__installed.client_id, __installed.client_secret, 'http://localhost:3456');
-auth.setCredentials(__TOK);
-const sheets = google.sheets({ version: 'v4', auth });
-const drive = google.drive({ version: 'v3', auth });
+const __AUTH_MODE = process.env.__MCP_GSHEETS_AUTH_MODE;
+const __SCOPES = [
+  'https://www.googleapis.com/auth/spreadsheets',
+  'https://www.googleapis.com/auth/drive',
+];
 const spreadsheetId = process.env.__MCP_GSHEETS_ID;
 
-let result;
+let auth, sheets, drive, result;
 const __RESULT_SENTINEL = '__MCP_GSHEETS_RESULT__::';
 
 (async () => {
   try {
+    if (__AUTH_MODE === 'service_account') {
+      const ga = new google.auth.GoogleAuth({
+        keyFile: process.env.GOOGLE_APPLICATION_CREDENTIALS,
+        scopes: __SCOPES,
+      });
+      auth = await ga.getClient();
+    } else {
+      const __CFG_DIR = process.env.__MCP_GSHEETS_CFG_DIR;
+      const __CRED = JSON.parse(fs.readFileSync(path.join(__CFG_DIR, 'gdrive-credentials.json'), 'utf8'));
+      const __TOK = JSON.parse(fs.readFileSync(path.join(__CFG_DIR, 'gdrive-token.json'), 'utf8'));
+      const __installed = __CRED.installed || __CRED.web;
+      auth = new google.auth.OAuth2(__installed.client_id, __installed.client_secret, 'http://localhost:3456');
+      auth.setCredentials(__TOK);
+    }
+    sheets = google.sheets({ version: 'v4', auth });
+    drive = google.drive({ version: 'v3', auth });
 `;
 
 const HARNESS_SUFFIX = `
@@ -79,6 +92,7 @@ export async function runUserScript(
   const child = spawn(process.execPath, [tmpPath], {
     env: {
       ...process.env,
+      __MCP_GSHEETS_AUTH_MODE: getAuthMode(),
       __MCP_GSHEETS_CFG_DIR: cfg.configDir,
       __MCP_GSHEETS_ID: spreadsheetId,
       NODE_PATH: nodePathForChild(),

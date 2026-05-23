@@ -13,23 +13,48 @@ Replace the second line with the equivalent for the current MCP client (Cursor: 
 
 ## First call: detect setup state
 
-Always call `auth_status` first when starting a session against this server. The response tells you exactly what is missing:
+Always call `auth_status` first when starting a session against this server. It tells you which auth mode is active and what is missing.
 
+**OAuth mode response (default):**
 ```json
 {
+  "auth_mode": "oauth",
   "configDir": "C:\\Users\\<user>\\.mcp-google-sheets",
   "credentialsPath": ".../gdrive-credentials.json",
   "tokenPath": ".../gdrive-token.json",
+  "service_account_key_path": null,
   "credentials_present": true|false,
   "token_present": true|false
 }
 ```
 
 - `credentials_present: false` → go to **OAuth setup** below.
-- `credentials_present: true, token_present: false` → go to **First authorization** below.
+- `credentials_present: true, token_present: false` → go to **First OAuth authorization** below.
 - Both `true` → ready to operate.
 
-## OAuth setup (only when credentials_present is false)
+**Service account mode response (env `GOOGLE_APPLICATION_CREDENTIALS` set):**
+```json
+{
+  "auth_mode": "service_account",
+  "service_account_key_path": "/path/to/sa-key.json",
+  "service_account_key_present": true|false,
+  "service_account_email": "xxx@yyy.iam.gserviceaccount.com"
+}
+```
+
+- `service_account_key_present: false` → the env var points at a missing file. Tell the user the path and ask them to fix it.
+- `service_account_key_present: true` → ready to operate, but **every spreadsheet must be shared with `service_account_email`** (Editor or Viewer). If a tool call returns 403, that's the cause.
+
+## Auth mode selection
+
+Do **not** prompt the user to pick a mode. The mode is determined automatically by whether `GOOGLE_APPLICATION_CREDENTIALS` is set in the server's process env:
+
+- Set to a valid SA JSON path → service account mode.
+- Unset / empty → OAuth mode (default).
+
+If the user explicitly asks for one mode, instruct them to register the server with or without that env var in `claude_desktop_config.json` / `claude mcp add --env`. Restart the MCP client after changing it.
+
+## OAuth setup (only when in OAuth mode and credentials_present is false)
 
 This step is **manual and required**: there is no API to create OAuth clients programmatically. Print these instructions verbatim to the user; do not invent shortcuts.
 
@@ -42,7 +67,7 @@ This step is **manual and required**: there is no API to create OAuth clients pr
 
 After the user confirms the file is in place, call `auth_status` again to verify.
 
-## First authorization (only when token_present is false)
+## First OAuth authorization (only when token_present is false)
 
 Call any tool that hits Google (e.g. `get_spreadsheet` on a spreadsheet the user gives you). The server will:
 
@@ -51,6 +76,15 @@ Call any tool that hits Google (e.g. `get_spreadsheet` on a spreadsheet the user
 - Persist `gdrive-token.json` on success.
 
 Warn the user before the call: "A browser tab will open. Click Allow on the Google consent screen, then return here." Do **not** retry the tool repeatedly while waiting — one call is enough; the OAuth flow blocks until the user authorizes.
+
+## Service account setup (only when in service account mode and key missing)
+
+1. Google Cloud Console → **IAM & Admin → Service Accounts → Create service account**. Any name, no project roles needed.
+2. Open the new service account → **Keys → Add Key → JSON**. Download the file.
+3. Save it where `GOOGLE_APPLICATION_CREDENTIALS` points (or update the env var to match).
+4. **Critical**: every spreadsheet the user wants the server to touch must be shared with the service account's `client_email` (visible inside the key JSON, also returned by `auth_status` after step 3). The bot only sees what's explicitly shared with it.
+
+After step 3, call `auth_status` to verify `service_account_key_present: true` and read the `service_account_email` value to share with the user.
 
 ## Always-explicit spreadsheetId
 
@@ -114,8 +148,10 @@ Conventions:
 
 | Symptom | Likely cause | Action |
 | --- | --- | --- |
-| `OAuth credentials not found at ...` | step 4 of OAuth setup not done | Show OAuth setup |
-| 403 `The caller does not have permission` | OAuth scopes ok but file/sheet not shared with this Google account, or user opened wrong Google account in consent screen | Ask user to verify access to the URL in their browser, logged in with the same account |
+| `OAuth credentials not found at ...` | OAuth mode, step 6 of OAuth setup not done | Show OAuth setup |
+| `Service account key file not found at ...` | SA mode, env var points at wrong path | Ask user to fix `GOOGLE_APPLICATION_CREDENTIALS` |
+| 403 in **OAuth** mode | sheet not shared with user, or user authorized wrong Google account | Ask user to open the URL in their browser logged in with the right account |
+| 403 in **service account** mode | sheet not shared with the bot email | Call `auth_status` to get `service_account_email`, tell the user to share the sheet with it as Editor |
 | `EADDRINUSE :::3456` during first auth | something else on port 3456 | Ask user to close that process, retry |
 | Token refresh failed | refresh token revoked | Delete `gdrive-token.json` and call any tool to re-trigger OAuth |
 | `Sheet with name 'X' not found` from a tab-aware tool | tab renamed/missing | Call `get_spreadsheet` first, use exact title or numeric `sheet_id` |

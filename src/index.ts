@@ -6,7 +6,12 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { getSheetsClient, getDriveClient, getConfigPaths } from "./auth.js";
+import {
+  getSheetsClient,
+  getDriveClient,
+  getConfigPaths,
+  getServiceAccountEmail,
+} from "./auth.js";
 import { runUserScript } from "./runner.js";
 
 function ok(data: unknown) {
@@ -987,17 +992,21 @@ const tools = [
   {
     name: "auth_status",
     description:
-      "Report the current auth configuration: where credentials/token are expected on disk and whether they exist. Use to debug setup problems.",
+      "Report the current auth configuration. Two modes: 'oauth' (default, interactive user account) or 'service_account' (GOOGLE_APPLICATION_CREDENTIALS env set, headless). Returns mode, expected file paths, and which files are present. Use to debug setup problems.",
     inputSchema: { type: "object", properties: {} },
     zod: z.object({}),
     handler: async () => {
       const fs = await import("node:fs");
       const cfg = getConfigPaths();
-      return ok({
-        ...cfg,
-        credentials_present: fs.existsSync(cfg.credentialsPath),
-        token_present: fs.existsSync(cfg.tokenPath),
-      });
+      const out: Record<string, unknown> = { ...cfg };
+      if (cfg.auth_mode === "oauth") {
+        out.credentials_present = fs.existsSync(cfg.credentialsPath);
+        out.token_present = fs.existsSync(cfg.tokenPath);
+      } else {
+        out.service_account_key_present = !!cfg.service_account_key_path && fs.existsSync(cfg.service_account_key_path);
+        out.service_account_email = getServiceAccountEmail();
+      }
+      return ok(out);
     },
   },
 ];
