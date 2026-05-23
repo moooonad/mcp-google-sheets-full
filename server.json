@@ -1,0 +1,20 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.moooonad/mcp-google-sheets-full",
+  "description": "Full Google Sheets MCP: 26 tools + run_sheets_script escape hatch. User OAuth, no service account.",
+  "repository": {
+    "url": "https://github.com/moooonad/mcp-google-sheets-full",
+    "source": "github"
+  },
+  "version": "0.1.2",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "mcp-google-sheets-full",
+      "version": "0.1.2",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}

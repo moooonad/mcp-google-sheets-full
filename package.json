@@ -1,6 +1,7 @@
 {
   "name": "mcp-google-sheets-full",
-  "version": "0.1.1",
+  "version": "0.1.2",
+  "mcpName": "io.github.moooonad/mcp-google-sheets-full",
   "description": "The Google Sheets MCP server that can do anything the Sheets API can — 26 tools including read/write, structural batchUpdate, Drive search, and `run_sheets_script` to execute arbitrary Node code with pre-authenticated `sheets`/`drive`/`auth`/`spreadsheetId` in scope. OAuth user flow (no service account needed).",
   "keywords": [
     "mcp",
